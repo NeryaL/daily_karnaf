@@ -1,13 +1,9 @@
 import os
 import json
 import logging
-from datetime import datetime
-from dotenv import load_dotenv
-from rss_tracker import get_latest_video_from_rss
-from youtube_downloader import download_audio_from_youtube
-from transcribe_whisper import transcribe_audio
-from summarize_gpt import summarize_text
 
+from dotenv import load_dotenv
+from utils import *
 # Load environment variables
 load_dotenv()
 

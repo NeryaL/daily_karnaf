@@ -1,14 +1,17 @@
-
 import dotenv
 import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
 import time
 
-# Load environment variables
+import openai
+import textwrap
+
+import feedparser
+import yt_dlp
+
 dotenv.load_dotenv()
 
 def post_tweet(tweets_list):
@@ -104,12 +107,89 @@ def post_tweet(tweets_list):
 
     finally:
         driver.quit()
-        
-if __name__ == "__main__":
-    # Example usage
-    tweets = [
-        "זהו ציוץ ראשון מתוך שרשור (בלי אימוג'ים בבקשה)",
-        "והנה הציוץ השני בסדרה החשובה הזאת.",
-        "וכמובן – איך אפשר בלי ציוץ שלישי לסיום השרשור."
-    ]
-    post_tweet(tweets)
+    
+
+def transcribe_audio(mp3_path: str) -> str:
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    print(f"🔁 Transcribing: {mp3_path}")
+    
+    with open(mp3_path, "rb") as audio_file:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="text"
+        )
+    return transcript
+
+
+def summarize_text(full_text: str) -> str:
+    MAX_CHARS_PER_CHUNK = 4000 
+    MODEL = "gpt-4"
+    def summarize_chunk(chunk, client):
+        messages = [
+            {
+                "role": "system",
+                "content": "Summarize the following part of a podcast transcript into 2-3 concise bullet points in Hebrew."
+            },
+            {
+                "role": "user",
+                "content": chunk
+            }
+        ]
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    chunks = textwrap.wrap(full_text, MAX_CHARS_PER_CHUNK)
+
+    partial_summaries = []
+    for i, chunk in enumerate(chunks):
+        print(f"🧩 Summarizing chunk {i+1}/{len(chunks)}...")
+        summary = summarize_chunk(chunk, client)
+        partial_summaries.append(summary)
+
+    combined = "\n".join(partial_summaries)
+    print("Final summary synthesis...")
+
+    final_summary = summarize_chunk(combined, client)
+    return final_summary
+
+
+def get_latest_video_from_rss(rss_url):
+    feed = feedparser.parse(rss_url)
+    if not feed.entries:
+        raise ValueError("No videos found in RSS feed")
+    
+    latest = feed.entries[0]
+    video_id = latest['yt_videoid']
+    title = latest['title']
+    link = latest['link']
+    
+    return video_id, title, link
+
+
+def download_audio_from_youtube(youtube_url: str, output_dir="downloads"):
+    os.makedirs(output_dir, exist_ok=True)
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(youtube_url, download=True)
+        title = info['title']
+        filename = os.path.join(output_dir, f"{info['id']}.mp3")
+        return filename, title
+
+
