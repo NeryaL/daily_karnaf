@@ -84,7 +84,7 @@ def summarize_full_context(transcript: str) -> list:
     return ast.literal_eval(raw_output)
 
 def summarize_transcript_file(input_path: str, output_path: str = "summary.txt"):
-    """Main function: reads file, verifies size, summarizes, saves and prints output."""
+    """Main function: reads file, verifies size, summarizes, saves and logs output."""
     with open(input_path, "r", encoding="utf-8") as f:
         transcript = f.read()
 
@@ -137,25 +137,27 @@ def post_tweets(tweets_list):
         first_tweet_text = tweets_list[0]
         driver.find_element(By.XPATH, "//div[@data-testid='tweetTextarea_0']").send_keys(first_tweet_text)
         driver.find_element(By.XPATH, "//span[text()='Post']").click()
-        print(f"Posted initial tweet: {first_tweet_text}")
+        log(f"Posted initial tweet: {first_tweet_text}")
 
         # Wait for the tweet to be posted and get its URL
         WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Your post was sent.']")))
         time.sleep(3)  # Give it a moment to settle
+        wait = WebDriverWait(driver, 10)
         
-        profile_url = f"https://x.com/{TWITTER_USERNAME}"
-        driver.get(profile_url)
-        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//article")))
-        
-        # Find the link to the latest tweet
-        tweet_link = driver.find_element(By.XPATH, "//article//a[contains(@href, '/status/')]")
-        current_tweet_url = tweet_link.get_attribute('href')
-        print(f"Initial tweet URL: {current_tweet_url}")
+        tweet_article = wait.until(EC.presence_of_element_located(
+            (By.XPATH, f"//article[.//span[text()='{first_tweet_text}']]")
+        ))
+
+        # Find the <a> tag inside that article which links to the tweet
+        link_element = tweet_article.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")
+        current_tweet_url = link_element.get_attribute("href")
+
+        log(f"Reply URL: {current_tweet_url}")
 
 
         # Iterate through the rest of the tweets as replies
         for i, reply_text in enumerate(tweets_list[1:]):
-            print(f"Attempting to reply with: {reply_text}")
+            log(f"Attempting to reply with: {reply_text}")
             # Navigate to the previous tweet's permalink to reply
             driver.get(current_tweet_url)
 
@@ -171,7 +173,7 @@ def post_tweets(tweets_list):
             buttons = driver.find_elements(By.XPATH, "//span[text()='Post' or text()='Reply']")
             if buttons:
                 buttons[-1].click()
-                print(f"Posted reply: {reply_text}")
+                log(f"Posted reply: {reply_text}")
             else:
                 raise Exception("Could not find post/reply button.")
 
@@ -190,12 +192,13 @@ def post_tweets(tweets_list):
             link_element = tweet_article.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")
             current_tweet_url = link_element.get_attribute("href")
 
-            print(f"Reply URL: {current_tweet_url}")
+            log(f"Reply URL: {current_tweet_url}")
 
 
 
     except Exception as e:
         log(f"An error occurred: {e}", level="error")
+        return
 
     finally:
         driver.quit()
