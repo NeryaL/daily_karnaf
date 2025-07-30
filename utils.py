@@ -1,5 +1,9 @@
+import json
 import dotenv
 import os
+import ast
+import tiktoken
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -11,9 +15,81 @@ import textwrap
 
 import feedparser
 import yt_dlp
+from typing import List
+
+from pydub import AudioSegment
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import tempfile
 
 dotenv.load_dotenv()
 
+MAX_SIZE_BYTES = 25 * 1024 * 1024  # Whisper limit: 25MB
+CHUNK_DURATION_MS = 60 * 1000      # 1 minute chunks
+
+API_KEY = os.getenv("OPENAI_API_KEY")
+client = openai.OpenAI(api_key=API_KEY)
+
+MODEL = "gpt-4o"
+MAX_CONTEXT = 128_000
+MAX_OUTPUT = 4000
+
+# Prompt tailored for your use-case
+PROMPT_INSTRUCTIONS = (
+    "You are a professional summarizer. You will receive a transcript of a daily news podcast in Hebrew.\n"
+    "Your task:\n"
+    "- Summarize the entire content into 2–4 short Hebrew tweets.\n"
+    "- you should focus on the author ideas and arguments, not the ones he cites.\n"
+    "- Each tweet must be a complete, central, and coherent argument.\n"
+    "- Each tweet must not exceed 200 characters.\n"
+    "- Pay careful attention to sarcasm, irony, cynicism, and complex arguments.\n"
+    "- Any reference to the host should be written as 'הקרנף' instead of using their real name (e.g., יואב רבינוביץ).\n"
+    "- Format the output exactly as:\n"
+    "  [\"point1…\", \"point2…\", \"point3…\"]\n"
+    "- Do not include emojis or any extra characters.\n"
+    "- Return only that JSON-style list, nothing else."
+)
+
+def count_tokens(text: str, model_name: str = MODEL) -> int:
+    """Returns the number of tokens used by the input text with the specified model."""
+    encoding = tiktoken.encoding_for_model(model_name)
+    return len(encoding.encode(text))
+
+def summarize_full_context(transcript: str) -> list:
+    """Send the full transcript and prompt together as a single context to the model."""
+    transcript_tokens = count_tokens(transcript)
+    prompt_tokens = count_tokens(PROMPT_INSTRUCTIONS)
+
+    total_tokens = transcript_tokens + prompt_tokens
+    if total_tokens >= MAX_CONTEXT:
+        raise ValueError(f"Transcript too long: {total_tokens} tokens (limit is {MAX_CONTEXT})")
+
+    available_for_output = min(MAX_CONTEXT - total_tokens, MAX_OUTPUT)
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": PROMPT_INSTRUCTIONS},
+            {"role": "user", "content": transcript}
+        ],
+        temperature=0.3,
+        max_tokens=available_for_output
+    )
+    raw_output = response.choices[0].message.content.strip()
+    return ast.literal_eval(raw_output)
+
+def summarize_transcript_file(input_path: str, output_path: str = "summary.txt"):
+    """Main function: reads file, verifies size, summarizes, saves and prints output."""
+    with open(input_path, "r", encoding="utf-8") as f:
+        transcript = f.read()
+
+    summary = summarize_full_context(transcript)
+
+    # Save as a text file
+    with open(output_path, "w", encoding="utf-8") as out:
+        out.write(repr(summary))
+
+    print("Summary list:", summary)
+    return summary
 def log(message, level="info"):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     text = f"{timestamp} [{level.upper()}] {message}"
@@ -119,17 +195,54 @@ def post_tweets(tweets_list):
         driver.quit()
     
 
-def transcribe_audio(mp3_path: str) -> str:
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    log(f"Transcribing: {mp3_path}")
+def split_audio_to_chunks(mp3_path: str, chunk_duration_ms: int) -> List[str]:
+    """Splits MP3 into multiple temp files, returns list of paths."""
+    audio = AudioSegment.from_file(mp3_path)
+    chunks = []
+    for i in range(0, len(audio), chunk_duration_ms):
+        chunk = audio[i:i + chunk_duration_ms]
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        chunk.export(temp_file.name, format="mp3")
+        chunks.append(temp_file.name)
+    return chunks
 
-    with open(mp3_path, "rb") as audio_file:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file,
-            response_format="text"
-        )
-    return transcript
+def transcribe_chunk(chunk_path: str, index: int, client):
+    """Transcribe a single audio chunk."""
+    try:
+        with open(chunk_path, "rb") as audio_file:
+            response = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                response_format="text"
+            )
+        return index, response
+    finally:
+        os.remove(chunk_path)  # Clean up
+
+def transcribe_audio(mp3_path: str) -> str:
+    file_size = os.path.getsize(mp3_path)
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    if file_size <= MAX_SIZE_BYTES:
+        log(f"Transcribing full file: {mp3_path}")
+        with open(mp3_path, "rb") as audio_file:
+            return client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                response_format="text"
+            )
+
+    log(f"File too large ({file_size} bytes), splitting and transcribing in parallel...")
+
+    chunks = split_audio_to_chunks(mp3_path, CHUNK_DURATION_MS)
+    results = [None] * len(chunks)
+
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(transcribe_chunk, chunk, i) for i, chunk in enumerate(chunks)]
+        for future in as_completed(futures):
+            i, text = future.result()
+            results[i] = text
+
+    return "\n".join(results).strip()
 
 
 def summarize_text(full_text: str) -> str:
@@ -173,6 +286,8 @@ def summarize_text(full_text: str) -> str:
     return final_summary
 
 
+
+
 def get_latest_video_from_rss(rss_url):
     feed = feedparser.parse(rss_url)
     if not feed.entries:
@@ -205,6 +320,16 @@ def download_audio_from_youtube(youtube_url: str, output_dir="downloads"):
         title = info['title']
         filename = os.path.join(output_dir, f"{info['id']}.mp3")
         return filename, title
+    
+def load_last_video_id(state_file="state.json"):
+    if not os.path.exists(state_file):
+        return None
+    with open(state_file, "r") as f:
+        return json.load(f).get("video_id")
+
+def save_last_video_id(video_id, state_file="state.json"):
+    with open(state_file, "w") as f:
+        json.dump({"video_id": video_id}, f)
 
 
 if __name__ == "__main__":
