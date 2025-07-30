@@ -11,7 +11,6 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 
 import openai
-import textwrap
 
 import feedparser
 import yt_dlp
@@ -21,13 +20,18 @@ from pydub import AudioSegment
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tempfile
 
-dotenv.load_dotenv()
+import re
 
+
+dotenv.load_dotenv()
+API_KEY = os.getenv("OPENAI_API_KEY")
+client = openai.OpenAI(api_key=API_KEY)
+
+
+LOG_FILE = "run.log"
 MAX_SIZE_BYTES = 25 * 1024 * 1024  # Whisper limit: 25MB
 CHUNK_DURATION_MS = 60 * 1000      # 1 minute chunks
 
-API_KEY = os.getenv("OPENAI_API_KEY")
-client = openai.OpenAI(api_key=API_KEY)
 
 MODEL = "gpt-4o"
 MAX_CONTEXT = 128_000
@@ -38,6 +42,8 @@ PROMPT_INSTRUCTIONS = (
     "You are a professional summarizer. You will receive a transcript of a daily news podcast in Hebrew.\n"
     "Your task:\n"
     "- Summarize the entire content into 2–4 short Hebrew tweets.\n"
+    "- the first tweet should include the yoav rabinovitch's x user handle: @yoavr above all\n"
+    "- the first tweet should include the episode number and title.\n"
     "- you should focus on the author ideas and arguments, not the ones he cites.\n"
     "- Each tweet must be a complete, central, and coherent argument.\n"
     "- Each tweet must not exceed 200 characters.\n"
@@ -84,16 +90,16 @@ def summarize_transcript_file(input_path: str, output_path: str = "summary.txt")
 
     summary = summarize_full_context(transcript)
 
-    # Save as a text file
-    with open(output_path, "w", encoding="utf-8") as out:
-        out.write(repr(summary))
-
-    print("Summary list:", summary)
     return summary
+
+
 def log(message, level="info"):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     text = f"{timestamp} [{level.upper()}] {message}"
     print(text)
+    #save to log file
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(text + "\n")
 
 
 def post_tweets(tweets_list):
@@ -206,7 +212,7 @@ def split_audio_to_chunks(mp3_path: str, chunk_duration_ms: int) -> List[str]:
         chunks.append(temp_file.name)
     return chunks
 
-def transcribe_chunk(chunk_path: str, index: int, client):
+def transcribe_chunk(chunk_path: str, index: int):
     """Transcribe a single audio chunk."""
     try:
         with open(chunk_path, "rb") as audio_file:
@@ -243,49 +249,6 @@ def transcribe_audio(mp3_path: str) -> str:
             results[i] = text
 
     return "\n".join(results).strip()
-
-
-def summarize_text(full_text: str) -> str:
-    MODEL = "gpt-4o"
-    MAX_CHARS_PER_CHUNK = 60000 # Adjust this based on your needs   
-    def summarize_chunk(chunk, client):
-        messages = [
-            {
-                "role": "system",
-                "content": "Summarize the following part of a podcast transcript into 2-3 concise bullet points in Hebrew." +\
-                " Each bullet point should be a complete sentence and provide a clear summary of the content."+\
-                    "DO NOT USE EMOJIES AT ALL!" +\
-                        "the format should be like this:\n" +\
-                        "['Bullet point 1', 'Bullet point 2', 'Bullet point 3']"
-            },
-            {
-                "role": "user",
-                "content": chunk
-            }
-        ]
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-    chunks = textwrap.wrap(full_text, MAX_CHARS_PER_CHUNK)
-
-    partial_summaries = []
-    for i, chunk in enumerate(chunks):
-        log(f"Summarizing chunk {i+1}/{len(chunks)}...")
-        summary = summarize_chunk(chunk, client)
-        partial_summaries.append(summary)
-
-    combined = "\n".join(partial_summaries)
-    log("Final summary synthesis...")
-
-    final_summary = summarize_chunk(combined, client)
-    return final_summary
-
-
 
 
 def get_latest_video_from_rss(rss_url):
@@ -331,6 +294,12 @@ def save_last_video_id(video_id, state_file="state.json"):
     with open(state_file, "w") as f:
         json.dump({"video_id": video_id}, f)
 
+
+def extract_episode_number(title: str) -> int:
+    match = re.search(r"פרק\s+(\d+)", title)
+    if match:
+        return int(match.group(1))
+    raise ValueError("Episode number not found in title.")
 
 if __name__ == "__main__":
     tweet_list = [

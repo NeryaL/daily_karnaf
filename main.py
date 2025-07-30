@@ -10,7 +10,6 @@ load_dotenv()
 # Constants
 RSS_URL = "https://www.youtube.com/feeds/videos.xml?playlist_id=PLZPgleW4baxpCtioKMLwGfWxeUUIuZi49"
 DOWNLOAD_DIR = "downloads"
-LOG_FILE = "run.log"
 
 
 
@@ -34,23 +33,26 @@ def main(steps):
             return
     else:
         log("Skipping check for new episode.")
-        video_id, title, url = None, None, None
-    
+        video_id, title, url = "test_video_id", "פרק 192 - שמן משווארמה בבת מצווה בפסאז׳ | הקרנף", "test_url"
+
     if "Download" in steps:
         log(f"New episode found: {title}")
         try:
-            mp3_path, safe_title = download_audio_from_youtube(url)
+            mp3_path, _ = download_audio_from_youtube(url)
             log(f"Audio downloaded: {mp3_path}")
         except Exception as e:
             log(f"Download failed: {e}")
             return
     else:
+        mp3_path = r"test_files\test_episode.mp3"
         log("Skipping download step.")
-        mp3_path, safe_title = None, None
-    
+        log(f"Using test file: {mp3_path}")
+
     if "Transcribe" in steps and mp3_path:
         try:
             transcript = transcribe_audio(mp3_path)
+            # add the episode title to the transcript beginning
+            transcript = f"Episode Title: {title}\n\n{transcript}"
             transcript_file = os.path.join(DOWNLOAD_DIR, f"{video_id}_transcript.txt")
             with open(transcript_file, "a", encoding="utf-8") as f:
                 f.write(transcript)
@@ -60,29 +62,33 @@ def main(steps):
             return
     else:
         log("Skipping transcription step.")
-        transcript = None
-    
-    if "Summarize" in steps and transcript:
+        log("Using test transcript file.")
+        transcript_file = r"test_files\test_transcript.txt"
+
+
+    if "Summarize" in steps and transcript_file:
         try:
-            summary = summarize_transcript_file(transcript)
+            summary = summarize_transcript_file(transcript_file)
             summary_file = os.path.join(DOWNLOAD_DIR, f"{video_id}_summary.txt")
-            with open(summary_file, "w", encoding="utf-8") as f:
-                f.write(summary)
-            log(f"Summary saved to: {summary_file}")
+            with open(summary_file, "w", encoding="utf-8") as out:
+                out.write(repr(summary))
         except Exception as e:
             log(f"Summarization failed: {e}")
             return
     else:
         log("Skipping summarization step.")
-        summary = None
-        
+        log("Using test summary file.")
+        summary_file = r"test_files\test_summary.txt"
+        with open(summary_file, "r", encoding="utf-8") as f:
+            summary = ast.literal_eval(f.read())
+            
     if "Tweet" in steps and summary:
         try:
             post_tweets(summary)
             log("Tweets posted successfully.")
         except Exception as e:
             log(f"Tweeting failed: {e}")
-            return
+            
 
     save_last_video_id(video_id)
     log("Done.")
