@@ -14,7 +14,13 @@ import yt_dlp
 
 dotenv.load_dotenv()
 
-def post_tweet(tweets_list):
+def log(message, level="info"):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    text = f"{timestamp} [{level.upper()}] {message}"
+    print(text)
+
+
+def post_tweets(tweets_list):
     TWITTER_MAIL_ADDRESS = os.getenv("TWITTER_MAIL_ADDRESS")
     TWITTER_PASSWORD = os.getenv("TWITTER_PASSWORD")
     TWITTER_USERNAME = os.getenv("TWITTER_USERNAME")
@@ -42,68 +48,72 @@ def post_tweet(tweets_list):
         WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//div[@data-testid='tweetTextarea_0']")))
 
         # Post the first tweet
-        if tweets_list:
-            first_tweet_text = tweets_list[0]
-            driver.find_element(By.XPATH, "//div[@data-testid='tweetTextarea_0']").send_keys(first_tweet_text)
-            driver.find_element(By.XPATH, "//span[text()='Post']").click()
-            print(f"Posted initial tweet: {first_tweet_text}")
+        if not tweets_list:
+            log("No tweets provided in the list.")
+            return
+        
+        first_tweet_text = tweets_list[0]
+        driver.find_element(By.XPATH, "//div[@data-testid='tweetTextarea_0']").send_keys(first_tweet_text)
+        driver.find_element(By.XPATH, "//span[text()='Post']").click()
+        print(f"Posted initial tweet: {first_tweet_text}")
 
-            # Wait for the tweet to be posted and get its URL
+        # Wait for the tweet to be posted and get its URL
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Your post was sent.']")))
+        time.sleep(3)  # Give it a moment to settle
+        
+        profile_url = f"https://x.com/{TWITTER_USERNAME}"
+        driver.get(profile_url)
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//article")))
+        
+        # Find the link to the latest tweet
+        tweet_link = driver.find_element(By.XPATH, "//article//a[contains(@href, '/status/')]")
+        current_tweet_url = tweet_link.get_attribute('href')
+        print(f"Initial tweet URL: {current_tweet_url}")
+
+
+        # Iterate through the rest of the tweets as replies
+        for i, reply_text in enumerate(tweets_list[1:]):
+            print(f"Attempting to reply with: {reply_text}")
+            # Navigate to the previous tweet's permalink to reply
+            driver.get(current_tweet_url)
+
+            # Wait for the reply input field to be present on the tweet page and type the reply
+            reply_textarea_xpath = "//div[@data-testid='tweetTextarea_0']"
+            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, reply_textarea_xpath))).send_keys(reply_text)
+
+            # Wait for a while before trying to send.
+            log("Waiting for 3 seconds before attempting to post...")
+            time.sleep(3)
+
+            # The button text can be "Post" or "Reply". We find all matching elements and click the last one.
+            buttons = driver.find_elements(By.XPATH, "//span[text()='Post' or text()='Reply']")
+            if buttons:
+                buttons[-1].click()
+                print(f"Posted reply: {reply_text}")
+            else:
+                raise Exception("Could not find post/reply button.")
+
+            # Wait for the reply to be posted
             WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Your post was sent.']")))
             time.sleep(3)  # Give it a moment to settle
-            
-            profile_url = f"https://x.com/{TWITTER_USERNAME}"
-            driver.get(profile_url)
-            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//article")))
-            
-            # Find the link to the latest tweet
-            tweet_link = driver.find_element(By.XPATH, "//article//a[contains(@href, '/status/')]")
-            current_tweet_url = tweet_link.get_attribute('href')
-            print(f"Initial tweet URL: {current_tweet_url}")
+
+            wait = WebDriverWait(driver, 10)
+
+            # Locate tweet <article> by text content
+            tweet_article = wait.until(EC.presence_of_element_located(
+                (By.XPATH, f"//article[.//span[text()='{reply_text}']]")
+            ))
+
+            # Find the <a> tag inside that article which links to the tweet
+            link_element = tweet_article.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")
+            current_tweet_url = link_element.get_attribute("href")
+
+            print(f"Reply URL: {current_tweet_url}")
 
 
-            # Iterate through the rest of the tweets as replies
-            for i, reply_text in enumerate(tweets_list[1:]):
-                print(f"Attempting to reply with: {reply_text}")
-                # Navigate to the previous tweet's permalink to reply
-                driver.get(current_tweet_url)
-
-                # Wait for the reply input field to be present on the tweet page and type the reply
-                reply_textarea_xpath = "//div[@data-testid='tweetTextarea_0']"
-                WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, reply_textarea_xpath))).send_keys(reply_text)
-
-                # Wait for a while before trying to send.
-                print("Waiting for 5 seconds before attempting to post...")
-                time.sleep(5)
-
-                # The button text can be "Post" or "Reply". We find all matching elements and click the last one.
-                buttons = driver.find_elements(By.XPATH, "//span[text()='Post' or text()='Reply']")
-                if buttons:
-                    buttons[-1].click()
-                    print(f"Posted reply: {reply_text}")
-                else:
-                    raise Exception("Could not find post/reply button.")
-
-                # Wait for the reply to be posted
-                WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Your post was sent.']")))
-                time.sleep(3)  # Give it a moment to settle
-
-                # After replying, we need to find the URL of our new reply to continue the chain.
-                # We can go to the user's profile and get the latest tweet's URL.
-                profile_url = f"https://x.com/{TWITTER_USERNAME}"
-                driver.get(profile_url)
-                WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//article")))
-                
-                # Find the link to the latest tweet (which is our reply)
-                tweet_link = driver.find_element(By.XPATH, "//article//a[contains(@href, '/status/')]")
-                current_tweet_url = tweet_link.get_attribute('href')
-                print(f"Reply URL: {current_tweet_url}")
-
-        else:
-            print("No tweets provided in the list.")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        log(f"An error occurred: {e}", level="error")
 
     finally:
         driver.quit()
@@ -111,8 +121,8 @@ def post_tweet(tweets_list):
 
 def transcribe_audio(mp3_path: str) -> str:
     client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    print(f"🔁 Transcribing: {mp3_path}")
-    
+    log(f"Transcribing: {mp3_path}")
+
     with open(mp3_path, "rb") as audio_file:
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
@@ -123,13 +133,17 @@ def transcribe_audio(mp3_path: str) -> str:
 
 
 def summarize_text(full_text: str) -> str:
-    MAX_CHARS_PER_CHUNK = 4000 
-    MODEL = "gpt-4"
+    MODEL = "gpt-4o"
+    MAX_CHARS_PER_CHUNK = 60000 # Adjust this based on your needs   
     def summarize_chunk(chunk, client):
         messages = [
             {
                 "role": "system",
-                "content": "Summarize the following part of a podcast transcript into 2-3 concise bullet points in Hebrew."
+                "content": "Summarize the following part of a podcast transcript into 2-3 concise bullet points in Hebrew." +\
+                " Each bullet point should be a complete sentence and provide a clear summary of the content."+\
+                    "DO NOT USE EMOJIES AT ALL!" +\
+                        "the format should be like this:\n" +\
+                        "['Bullet point 1', 'Bullet point 2', 'Bullet point 3']"
             },
             {
                 "role": "user",
@@ -148,12 +162,12 @@ def summarize_text(full_text: str) -> str:
 
     partial_summaries = []
     for i, chunk in enumerate(chunks):
-        print(f"🧩 Summarizing chunk {i+1}/{len(chunks)}...")
+        log(f"Summarizing chunk {i+1}/{len(chunks)}...")
         summary = summarize_chunk(chunk, client)
         partial_summaries.append(summary)
 
     combined = "\n".join(partial_summaries)
-    print("Final summary synthesis...")
+    log("Final summary synthesis...")
 
     final_summary = summarize_chunk(combined, client)
     return final_summary
@@ -193,3 +207,10 @@ def download_audio_from_youtube(youtube_url: str, output_dir="downloads"):
         return filename, title
 
 
+if __name__ == "__main__":
+    tweet_list = [
+        "This is the first tweet.",
+        "This is the second tweet.",
+        "This is the third tweet."
+    ]
+    post_tweets(tweet_list)
