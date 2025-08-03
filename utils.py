@@ -4,7 +4,6 @@ import os
 import ast
 import tiktoken
 
-from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -24,9 +23,13 @@ import re
 
 
 dotenv.load_dotenv()
+
+USE_DOCKER = os.getenv("USE_DOCKER", "False").lower() in ("true", "1", "yes")
+
 API_KEY = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=API_KEY)
 
+SELENIUM_URL = os.getenv("SELENIUM_URL", "http://localhost:4444/wd/hub")
 
 LOG_FILE = "run.log"
 MAX_SIZE_BYTES = 25 * 1024 * 1024  # Whisper limit: 25MB
@@ -101,13 +104,57 @@ def log(message, level="info"):
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(text + "\n")
 
+def wait_for_selenium(timeout=60):
+    from selenium import webdriver
+    from selenium.common.exceptions import WebDriverException
+    from selenium.webdriver.chrome.options import Options
+    
+    log("Waiting for Selenium to become ready...")
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+
+            driver = webdriver.Remote(
+                command_executor=f"{SELENIUM_URL}",
+                options=chrome_options
+            )
+            log("Selenium is ready.")
+            return
+        # except WebDriverException as e:
+        except Exception as e:
+            log(f"Waiting for Selenium... {e}")
+            time.sleep(2)
+    raise TimeoutError("Selenium did not become ready in time.")
+
 
 def post_tweets(tweets_list):
     TWITTER_MAIL_ADDRESS = os.getenv("TWITTER_MAIL_ADDRESS")
     TWITTER_PASSWORD = os.getenv("TWITTER_PASSWORD")
     TWITTER_USERNAME = os.getenv("TWITTER_USERNAME")
-    driver = webdriver.Chrome() # Ensure you have chromedriver installed and in your PATH
+    log(f"docker mode: {USE_DOCKER}")
+    if USE_DOCKER:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+
+        # wait_for_selenium()
+        time.sleep(20)
+        chrome_options = Options()
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        driver = webdriver.Remote(
+            command_executor=f"{SELENIUM_URL}",
+            options=chrome_options
+        )
+    else:
+        from selenium import webdriver
+        
+        driver = webdriver.Chrome() # Ensure you have chromedriver installed and in your PATH
     max_tries = 3
+    l = len(tweets_list)
     try:
         driver.get("https://twitter.com/login")
 
@@ -136,7 +183,8 @@ def post_tweets(tweets_list):
         tries_counter = 0
     
         try:
-            first_tweet_text = tweets_list[0]
+            pre = f"1/{l}\n"
+            first_tweet_text = pre + tweets_list[0]
             driver.find_element(By.XPATH, "//div[@data-testid='tweetTextarea_0']").send_keys(first_tweet_text)
             driver.find_element(By.XPATH, "//span[text()='Post']").click()
             log(f"Posted initial tweet: {first_tweet_text}")
@@ -147,7 +195,7 @@ def post_tweets(tweets_list):
             wait = WebDriverWait(driver, 10)
             
             tweet_article = wait.until(EC.presence_of_element_located(
-                (By.XPATH, f"//article[.//span[contains(text(), '{first_tweet_text[-20:-10]}')]]")
+                (By.XPATH, f"//article[.//span[contains(text(), '{pre}')]]")
             ))
 
             # Find the <a> tag inside that article which links to the tweet
@@ -167,6 +215,8 @@ def post_tweets(tweets_list):
             # Iterate through the rest of the tweets as replies
         for i, reply_text in enumerate(tweets_list[1:]):
             tries_counter = 0
+            pre = f"{i+2}/{l}\n"
+            reply_text = pre + reply_text
             while tries_counter < max_tries:
                 try:
                     log(f"Attempting to reply with: {reply_text}")
@@ -197,8 +247,8 @@ def post_tweets(tweets_list):
 
                     # Locate tweet <article> by text content
                     tweet_article = wait.until(EC.presence_of_element_located(
-                        (By.XPATH, f"//article[.//span[text()='{reply_text}']]")
-                    ))
+                                    (By.XPATH, f"//article[.//span[contains(text(), '{pre}')]]")
+                                ))
 
                     # Find the <a> tag inside that article which links to the tweet
                     link_element = tweet_article.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")

@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  selenium:
+    image: selenium/standalone-chrome
+    container_name: selenium
+    environment:
+      - SE_NODE_SESSION_TIMEOUT=1000
+    ports:
+      - "4444:4444"
+    shm_size: 2gb
+
+  karnaf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: karnaf
+    depends_on:
+      - selenium
+    env_file:
+      - .env 
+    environment:
+      - SELENIUM_URL=http://selenium:4444/wd/hub
+    volumes:
+      - ./downloads:/app/downloads
+      - ./test_files:/app/test_files

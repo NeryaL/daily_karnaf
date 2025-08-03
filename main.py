@@ -1,7 +1,5 @@
 import os
-import json
-import logging
-
+from pathlib import Path
 from dotenv import load_dotenv
 from utils import *
 # Load environment variables
@@ -15,7 +13,10 @@ DOWNLOAD_DIR = "downloads"
 
 
 def main(steps):
-    
+
+    if "All" in steps:
+        steps = ["Check", "Download", "Transcribe", "Summarize", "Tweet"]
+
     log(f"Starting daily karnaf script with steps: {', '.join(steps)}")
     
     
@@ -44,7 +45,7 @@ def main(steps):
             log(f"Download failed: {e}")
             return
     else:
-        mp3_path = r"test_files\test_episode.mp3"
+        mp3_path = os.path.join("test_files", "test_episode.mp3")
         log("Skipping download step.")
         log(f"Using test file: {mp3_path}")
 
@@ -63,7 +64,7 @@ def main(steps):
     else:
         log("Skipping transcription step.")
         log("Using test transcript file.")
-        transcript_file = r"test_files\test_transcript.txt"
+        transcript_file = os.path.join("test_files", "test_transcript.txt")
 
 
     if "Summarize" in steps and transcript_file:
@@ -76,9 +77,13 @@ def main(steps):
             log(f"Summarization failed: {e}")
             return
     else:
+        
+        # time.sleep(10)  # Simulate a delay for the summarization step
         log("Skipping summarization step.")
         log("Using test summary file.")
-        summary_file = r"test_files\test_summary.txt"
+        # summary_file = r"downloads\WLhTVaZO7oQ_summary.txt"
+
+        summary_file = os.path.join("test_files", "test_summary.txt")
         with open(summary_file, "r", encoding="utf-8") as f:
             summary = ast.literal_eval(f.read())
             
@@ -96,10 +101,6 @@ def main(steps):
 if __name__ == "__main__":
     
     steps = [
-        "Check",
-        "Download",
-        "Transcribe",
-        "Summarize",
-        "Tweet",
+        "All",
     ]
     main(steps)
