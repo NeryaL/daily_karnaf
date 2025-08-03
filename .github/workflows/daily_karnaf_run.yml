@@ -12,6 +12,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create .env file from GitHub secrets
+        run: |
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
+          echo "TWITTER_MAIL_ADDRESS=${{ secrets.TWITTER_MAIL_ADDRESS }}" >> .env
+          echo "TWITTER_PASSWORD=${{ secrets.TWITTER_PASSWORD }}" >> .env
+          echo "TWITTER_USERNAME=${{ secrets.TWITTER_USERNAME }}" >> .env
+          echo "STATE_FILE=${{ secrets.STATE_FILE }}" >> .env
+          echo "RSS_URL=${{ secrets.RSS_URL }}" >> .env
+          echo "DOWNLOAD_DIR=${{ secrets.DOWNLOAD_DIR }}" >> .env
+          echo "LOG_FILE=${{ secrets.LOG_FILE }}" >> .env
+          echo "USE_DOCKER=${{ secrets.USE_DOCKER }}" >> .env
+
       - name: Set up Docker Compose
         run: |
           docker compose version
