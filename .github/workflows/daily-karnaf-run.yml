@@ -1,0 +1,33 @@
+name: Daily Karnaf Run
+
+on:
+  schedule:
+    - cron: '0 4 * * *' 
+  workflow_dispatch:  
+jobs:
+  run-karnaf:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        run: |
+          docker compose version
+
+      - name: Build and run containers
+        run: |
+          docker compose up -d --build
+
+      - name: Wait for services to stabilize
+        run: sleep 15
+
+      - name: Run your test or main command
+        run: |
+          docker compose exec karnaf python main.py
+
+      - name: Shutdown containers
+        if: always()
+        run: |
+          docker compose down
