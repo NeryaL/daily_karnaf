@@ -7,12 +7,13 @@ on:
 jobs:
   run-karnaf:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create .env file from GitHub secrets
+      - name: Create .env file from secrets
         run: |
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
           echo "TWITTER_MAIL_ADDRESS=${{ secrets.TWITTER_MAIL_ADDRESS }}" >> .env
@@ -24,17 +25,11 @@ jobs:
           echo "LOG_FILE=${{ secrets.LOG_FILE }}" >> .env
           echo "USE_DOCKER=${{ secrets.USE_DOCKER }}" >> .env
 
-      - name: Set up Docker Compose
-        run: |
-          docker compose version
-
-      - name: Build and run containers
-        run: docker compose up -d --build
-
-      - name: Wait for karnaf to finish
-        run: sleep 15
+      - name: Build and run containers (waits for finish)
+        run: docker compose up --build
 
       - name: Show logs
+        if: always()
         run: docker compose logs karnaf
 
       - name: Shutdown containers
