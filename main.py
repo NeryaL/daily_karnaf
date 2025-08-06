@@ -89,8 +89,11 @@ def main(steps):
             
     if "Tweet" in steps and summary:
         try:
-            post_tweets(summary)
-            log("Tweets posted successfully.")
+            status = post_tweets(summary)
+            if status:
+                log("Tweets posted successfully.")
+            else:
+                log("Failed to post tweets.")
         except Exception as e:
             log(f"Tweeting failed: {e}")
             
@@ -99,6 +102,8 @@ def main(steps):
     log("Done.")
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Daily Karnaf Script")
     
     steps = [
         "All",

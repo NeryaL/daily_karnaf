@@ -213,58 +213,54 @@ def post_tweets(tweets_list):
             current_tweet_url = tweet_link.get_attribute('href')
             print(f"Initial tweet URL: {current_tweet_url}")
             # Iterate through the rest of the tweets as replies
+            
         for i, reply_text in enumerate(tweets_list[1:]):
-            tries_counter = 0
             pre = f"{i+2}/{l}\n"
             reply_text = pre + reply_text
-            while tries_counter < max_tries:
-                try:
-                    log(f"Attempting to reply with: {reply_text}")
-                    # Navigate to the previous tweet's permalink to reply
-                    driver.get(current_tweet_url)
+            log(f"Attempting to reply with: {reply_text}")
+            # Navigate to the previous tweet's permalink to reply
+            driver.get(current_tweet_url)
 
-                    # Wait for the reply input field to be present on the tweet page and type the reply
-                    reply_textarea_xpath = "//div[@data-testid='tweetTextarea_0']"
-                    WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, reply_textarea_xpath))).send_keys(reply_text)
+            # Wait for the reply input field to be present on the tweet page and type the reply
+            reply_textarea_xpath = "//div[@data-testid='tweetTextarea_0']"
+            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, reply_textarea_xpath))).send_keys(reply_text)
 
-                    # Wait for a while before trying to send.
-                    log("Waiting for 3 seconds before attempting to post...")
-                    time.sleep(3)
+            # Wait for a while before trying to send.
+            log("Waiting for 3 seconds before attempting to post...")
+            time.sleep(3)
 
-                    # The button text can be "Post" or "Reply". We find all matching elements and click the last one.
-                    buttons = driver.find_elements(By.XPATH, "//span[text()='Post' or text()='Reply']")
-                    if buttons:
-                        buttons[-1].click()
-                        log(f"Posted reply: {reply_text}")
-                    else:
-                        raise Exception("Could not find post/reply button.")
+            # The button text can be "Post" or "Reply". We find all matching elements and click the last one.
+            buttons = driver.find_elements(By.XPATH, "//span[text()='Post' or text()='Reply']")
+            if buttons:
+                buttons[-1].click()
+                log(f"Posted reply: {reply_text}")
+            else:
+                raise Exception("Could not find post/reply button.")
 
-                    # Wait for the reply to be posted
-                    WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Your post was sent.']")))
-                    time.sleep(3)  # Give it a moment to settle
+            # Wait for the reply to be posted
+            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[text()='Your post was sent.']")))
+            time.sleep(3)  # Give it a moment to settle
 
-                    wait = WebDriverWait(driver, 10)
+            wait = WebDriverWait(driver, 10)
 
-                    # Locate tweet <article> by text content
-                    tweet_article = wait.until(EC.presence_of_element_located(
-                                    (By.XPATH, f"//article[.//span[contains(text(), '{pre}')]]")
-                                ))
+            # Locate tweet <article> by text content
+            tweet_article = wait.until(EC.presence_of_element_located(
+                            (By.XPATH, f"//article[.//span[contains(text(), '{pre}')]]")
+                        ))
 
-                    # Find the <a> tag inside that article which links to the tweet
-                    link_element = tweet_article.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")
-                    current_tweet_url = link_element.get_attribute("href")
+            # Find the <a> tag inside that article which links to the tweet
+            link_element = tweet_article.find_element(By.XPATH, ".//a[contains(@href, '/status/')]")
+            current_tweet_url = link_element.get_attribute("href")
 
-                    log(f"Reply URL: {current_tweet_url}")
-                    break
-                except Exception as e:
-                    tries_counter += 1
-                    log(f"Error posting reply {i+1}: {e}. Retrying ({tries_counter}/{max_tries})...")
-                    time.sleep(2)
+            log(f"Reply URL: {current_tweet_url}")
+        log("All tweets posted successfully.")
+        return True
+
 
 
     except Exception as e:
         log(f"An error occurred: {e}", level="error")
-        return
+        return False
 
     finally:
         driver.quit()
