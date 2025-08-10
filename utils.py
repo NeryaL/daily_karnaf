@@ -24,14 +24,16 @@ import re
 
 dotenv.load_dotenv()
 
-USE_DOCKER = os.getenv("USE_DOCKER", "False").lower() in ("true", "1", "yes")
-
 API_KEY = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=API_KEY)
 
 SELENIUM_URL = os.getenv("SELENIUM_URL", "http://localhost:4444/wd/hub")
 
 LOG_FILE = "run.log"
+
+def set_log_file(path):
+    global LOG_FILE
+    LOG_FILE = path
 MAX_SIZE_BYTES = 25 * 1024 * 1024  # Whisper limit: 25MB
 CHUNK_DURATION_MS = 60 * 1000      # 1 minute chunks
 
@@ -130,12 +132,12 @@ def wait_for_selenium(timeout=60):
     raise TimeoutError("Selenium did not become ready in time.")
 
 
-def post_tweets(tweets_list):
+def post_tweets(tweets_list, is_docker):
     TWITTER_MAIL_ADDRESS = os.getenv("TWITTER_MAIL_ADDRESS")
     TWITTER_PASSWORD = os.getenv("TWITTER_PASSWORD")
     TWITTER_USERNAME = os.getenv("TWITTER_USERNAME")
-    log(f"docker mode: {USE_DOCKER}")
-    if USE_DOCKER:
+    log(f"docker mode: {is_docker}")
+    if is_docker:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
 
